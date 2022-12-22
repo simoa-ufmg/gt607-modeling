@@ -7,7 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 import xarray as xr
-
+import re
 # geospatial viz
 # import folium
 # from folium import Choropleth, Circle, Marker, Icon, Popup, FeatureGroup
@@ -63,44 +63,10 @@ import model.model_class as model_class
 
 warnings.simplefilter('ignore')
 
-model_dir = "./best_models/TM_30m"
 
-model_names = [x.split(
-    "_")[0] + "_model" for x in os.listdir(model_dir) if not x.startswith(".ipyn")]
-model_files = [model_dir + "/" +
-               model for model in os.listdir(model_dir) if not model.startswith(".ipyn")]
-
-model_dict = {idx: value for (idx, value) in zip(model_names, model_files)}
-data_dir = glob.glob("field_data*")
-data_files = []
-for i in data_dir:
-    data = glob.glob(os.path.join(i, "chl_algo_mean_reflectance_30.csv"))
-    data_files.append(data)
-
-li = []
-
-for filename in data_files:
-    df = pd.read_csv(filename[-1], index_col=None, header=0)
-    li.append(df)
-
-df = pd.concat(li, axis=0, ignore_index=True)
-data = df.to_xarray()
-# data = xr.DataArray(im_aligned, dims=("x", "y", "bands"), coords={"bands": ['Blue', 'Green', 'Red', 'Near-IR', 'RedEdge', 'Thermal']})
-
-wqp = 'PC (rfu)'
-filename = model_dict.get('pc_model')
-loaded_model = pickle.load(open(filename, 'rb'))
-
-print(loaded_model.feature_names_in_)
-
-df = df[[c for c in df.columns if c in loaded_model.feature_names_in_.tolist()]]
-
-df = df.select_dtypes([np.number])
-
-
-def func(xarray, model, transform, wqp):
+def func(df, model, transform, wqp):
     # importa os atributos de entrada
-    input_attributes = model.feature_names_in_.tolist()
+    # input_attributes = model.feature_names_in_.tolist()
 
     # print(f"data: {data.shape} | x: {bands.shape} ")
 
@@ -108,7 +74,6 @@ def func(xarray, model, transform, wqp):
     # stacked = xarray.stack(z=("x", "y"))
     # return stacked
     # seleciona as bandas
-    stacked2 = xarray
     # stacked2[[c for c in xarray.columns if c in loaded_model.feature_names_in_.tolist()]]
     # stacked2 = xarray.sel(bands=loaded_model.feature_names_in_.tolist())
     # print(stacked2.T.shape)
@@ -116,9 +81,8 @@ def func(xarray, model, transform, wqp):
     # print(stacked2.T.max())
     # df_temp = stacked2.T.to_dataframe(name = "SIMOA")
     # # return df_temp
-    y_pred = model.predict(stacked2.values)  # predicao do modelo
-    print(y_pred)
-
+    y_pred = model.predict(df.values)  # predicao do modelo
+    return y_pred
     # #y_pred_da = xr.DataArray(np.reshape(np.exp(y_pred), (y_pred.shape[0], 1)), dims=("z", "bands"))
     # if transform == 'exp':
     #     y_pred_da = xr.DataArray(np.exp(y_pred), dims=("z"))
@@ -133,4 +97,73 @@ def func(xarray, model, transform, wqp):
     # return temp
 
 
-img_secchi = func(df, loaded_model, 'exp', wqp)
+model_dir = "./best_models/TM_30m"
+
+model_names = [x.split(
+    "_")[0] + "_model" for x in os.listdir(model_dir) if not x.startswith(".ipyn")]
+model_files = [model_dir + "/" +
+               model for model in os.listdir(model_dir) if not model.startswith(".ipyn")]
+
+model_dict = {idx: value for (idx, value) in zip(model_names, model_files)}
+data_dir = glob.glob("field_data*")
+data_files = []
+for i in data_dir:
+    data = glob.glob(os.path.join(i, "chl_algo_mean_reflectance_60.csv"))
+    data_files.append(data)
+
+li = []
+
+for filename in data_files:
+    df = pd.read_csv(filename[-1], index_col=None, header=0)
+    li.append(df)
+
+df = pd.concat(li, axis=0, ignore_index=True)
+df = df.drop(columns=['Image'])
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+df.dropna(inplace=True)
+data = df.to_xarray()
+wqp = 'Secchi (cm)'
+
+
+for i in model_dict:
+    df_to_predict = df
+    filename = model_dict[i]
+    loaded_model = pickle.load(open(filename, 'rb'))
+    model_name = filename.split('/')
+    model_name = model_name[-1].split('_')
+    if i == 'secchi_model':
+        wqp = 'Secchi (cm)'
+    elif i == 'fdom_model':
+        wqp = 'Fdom (fnu)'
+    elif i == 'pc_model':
+        wqp = 'PC (rfu)'
+    elif i == 'chl_model':
+        wqp = 'Chl (rfu)'
+    elif i == 'turb_model':
+        wqp = 'Turb (fnu)'
+    if i != 'fdom_model' and i != 'turb_model':
+        df_to_predict = df_to_predict[[
+            c for c in df_to_predict.columns if c in loaded_model.feature_names_in_.tolist()]]
+    elif i == 'fdom_model':
+        df_to_predict['R^2/NIR'] = pd.to_numeric(
+            df_to_predict['R^2/NIR'], downcast='float')
+        df_to_predict['R^2/RE'] = pd.to_numeric(
+            df_to_predict['R^2/RE'], downcast='float')
+        df_to_predict['R^2/B'] = pd.to_numeric(
+            df_to_predict['R^2/B'], downcast='float')
+        df_to_predict['MLR'] = pd.to_numeric(
+            df_to_predict['MLR'], downcast='float')
+
+        # df = df.select_dtypes([np.number])
+    predict_df = func(df_to_predict, loaded_model, 'exp', wqp)
+    df[wqp + ' ' + model_name[2]] = predict_df
+print(df.columns)
+
+for i in data_dir:
+    file_path = os.path.join(i, "chl_algo_mean_reflectance_60.csv")
+    df.to_csv(file_path)
+
+# filename = model_dict.get('secchi_model')
+# loaded_model = pickle.load(open(filename, 'rb'))
+
+# print(loaded_model.feature_names_in_)
