@@ -166,7 +166,8 @@ for i in model_dict:
     model_name = filename.split('/')
     model_name = model_name[-1].split('_')
     model_linear = model_name[2]
-    if model_linear == "LinearRegression":
+    if model_linear == "LinearRegression":  # Para a pampulha não mudou sozinho para NDVI, a unica feature do modelo LinearRegression, entao coloquei isso aqui
+        # hard coded so para poder rolar, tem maneiras melhores de fazer isso though
         df_to_predict = df_to_predict["NDVI"]
         df_to_predict = df_to_predict.to_frame(name="NDVI")
 
@@ -215,7 +216,9 @@ for i in model_dict:
     print(model_name[2])
     indices_to_keep = ~df_to_predict.isin([np.nan, np.inf, -np.inf]).any(1)
     df_to_predict = df_to_predict[indices_to_keep]
+    print("Colunas sendo passadas para o modelo")
     print(df_to_predict.columns)
+    print(df_to_predict.shape)
     df_to_predict = df_to_predict.reset_index()
     predict_df = func(df_to_predict, loaded_model, 'exp', wqp)
     df[wqp + ' ' + model_name[2]] = predict_df
